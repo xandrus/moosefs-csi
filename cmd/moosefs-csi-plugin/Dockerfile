@@ -1,4 +1,4 @@
-# Copyright (c) 2023 Saglabs SA. All Rights Reserved.
+# Copyright (c) 2024 Saglabs SA. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,22 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM debian:buster
+FROM golang:1.23-bookworm AS csibuilder
+WORKDIR /build
 
-# Install wget, lsb-release and curl
-RUN apt update && \
-    apt install -y wget lsb-release curl fuse libfuse3-dev tree ca-certificates e2fsprogs gnupg2 && \
-    # security updates
-    apt install -y apt systemd
+RUN git clone --single-branch --branch dev https://github.com/xandrus/moosefs-csi.git
+RUN cd moosefs-csi && CGO_ENABLED=0 GOCACHE=/tmp/go-cache GOOS=linux go build -a -o /build/moosefs-csi-plugin cmd/moosefs-csi-plugin/main.go
 
-# Add key
-RUN wget -O - http://repository.moosefs.com/moosefs.key | apt-key add -
-RUN echo "deb http://repository.moosefs.com/4.44.4/apt/debian/buster buster main" > /etc/apt/sources.list.d/moosefs.list
+#Build MooseFS Client
+FROM ghcr.io/xandrus/mfsbuilder-debian12:latest AS mfsbuilder
+WORKDIR /moosefs
+RUN git clone --depth 1 --branch v4.56.6 https://github.com/moosefs/moosefs.git /moosefs
 
-# Install MooseFS client
-RUN apt update --allow-releaseinfo-change && apt install -y moosefs-pro-client
+RUN ./configure --prefix=/usr --mandir=/share/man --sysconfdir=/etc --localstatedir=/var/lib --with-default-user=mfs --with-default-group=mfs --disable-mfsbdev
+RUN cd /moosefs/mfsclient && make DESTDIR=/tmp/ install
 
-# Copy the CSI plugin
-ADD moosefs-csi-plugin /bin/
+#Build CSI plugin container
+FROM debian:bookworm
+
+RUN apt update && apt install -y libfuse3-3
+
+COPY --from=csibuilder /build/moosefs-csi-plugin /bin/moosefs-csi-plugin
+COPY --from=mfsbuilder /tmp/usr/bin /usr/bin
+RUN ["ln", "-s", "/usr/bin/mfsmount", "/usr/sbin/mount.moosefs"]
 
 ENTRYPOINT ["/bin/moosefs-csi-plugin"]
