@@ -22,7 +22,7 @@ RUN cd moosefs-csi && CGO_ENABLED=0 GOCACHE=/tmp/go-cache GOOS=linux go build -a
 FROM ghcr.io/xandrus/mfsbuilder-debian12:latest AS mfsbuilder
 WORKDIR /moosefs
 RUN git clone --depth 1 --branch v4.56.6 https://github.com/moosefs/moosefs.git /moosefs
-
+RUN autoreconf -f -i
 RUN ./configure --prefix=/usr --mandir=/share/man --sysconfdir=/etc --localstatedir=/var/lib --with-default-user=mfs --with-default-group=mfs --disable-mfsbdev
 RUN cd /moosefs/mfsclient && make DESTDIR=/tmp/ install
 
